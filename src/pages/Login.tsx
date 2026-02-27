@@ -53,10 +53,10 @@ export function Login() {
                         color: 'var(--text-main)',
                         marginBottom: '0.5rem'
                     }}>
-                        Phoenix Hub Portal
+                        Phoenix Hub Secure Login
                     </h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-                        Enter your credentials to access the staff dashboard.
+                        Authorized personnel only. Please sign in to access your clinic dashboard.
                     </p>
                 </div>
 
@@ -96,7 +96,7 @@ export function Login() {
                         <input
                             className="input-field"
                             type="email"
-                            placeholder="staff@phoenixclinic.com"
+                            placeholder="name@phoenixrehab.ca"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
@@ -161,7 +161,7 @@ export function Login() {
                     fontSize: '0.85rem',
                     color: 'var(--text-light)'
                 }}>
-                    Protected by Phoenix Health Systems
+                    Secure access for Phoenix Rehab practitioners and administrative staff.
                 </div>
             </div>
         </div>
