@@ -1,21 +1,20 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import clinicLogo from '../assets/logo.svg';
+import toast from 'react-hot-toast';
 import '../index.css';
 
 export function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
-        setError(null);
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
-            setError(error.message);
+            toast.error(error.message);
         }
         setLoading(false);
     };
@@ -59,28 +58,6 @@ export function Login() {
                         Authorized personnel only. Please sign in to access your clinic dashboard.
                     </p>
                 </div>
-
-                {error && (
-                    <div style={{
-                        backgroundColor: 'var(--error-bg)',
-                        color: 'var(--error-text)',
-                        border: '1px solid var(--error-border)',
-                        padding: '0.75rem 1rem',
-                        borderRadius: '8px',
-                        marginBottom: '1.5rem',
-                        fontSize: '0.9rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem'
-                    }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                        </svg>
-                        {error}
-                    </div>
-                )}
 
                 <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                     <div>

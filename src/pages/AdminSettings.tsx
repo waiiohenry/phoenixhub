@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Navigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 
 interface RolePermission {
     id?: string;
@@ -12,44 +13,38 @@ interface RolePermission {
 }
 
 const ROLES = [
-    'acupuncturist',
-    'admin',
-    'chiropractor',
-    'clinic_manager',
-    'director',
-    'kinesiologist',
-    'naturopath',
-    'office_manager',
-    'physiotherapist',
-    'front_desk',
-    'rmt',
-    'tcm'
+    'system_admin',
+    'executive',
+    'management',
+    'hr_management',
+    'administrative_support',
+    'clinical_provider'
 ];
 
 const DEPARTMENTS = [
     'clinical',
     'executive',
     'finance',
+    'hr',
     'it',
-    'marketing'
+    'marketing',
+    'operations'
 ];
 
 export function AdminSettings() {
-    const [isDirector, setIsDirector] = useState<boolean | null>(null);
+    const [isExecutive, setIsExecutive] = useState<boolean | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [permissions, setPermissions] = useState<RolePermission[]>([]);
-    const [error, setError] = useState<string | null>(null);
-    const [successMessage, setSuccessMessage] = useState<string | null>(null);
-    const [selectedRole, setSelectedRole] = useState<string>('rmt');
+    const [selectedRole, setSelectedRole] = useState<string>('clinical_provider');
 
     useEffect(() => {
         const verifyAndLoadData = async () => {
             setIsLoading(true);
             try {
-                // Verify Director
+                // Verify Executive
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) {
-                    setIsDirector(false);
+                    setIsExecutive(false);
                     return;
                 }
 
@@ -59,18 +54,18 @@ export function AdminSettings() {
                     .eq('id', user.id)
                     .single();
 
-                if (profile?.role !== 'director') {
-                    setIsDirector(false);
+                if (profile?.role !== 'executive') {
+                    setIsExecutive(false);
                     return;
                 }
 
-                setIsDirector(true);
+                setIsExecutive(true);
 
                 // Load Permissions
                 await fetchPermissions();
             } catch (err) {
                 console.error(err);
-                setError("Failed to load settings.");
+                toast.error("Failed to load settings.");
             } finally {
                 setIsLoading(false);
             }
@@ -92,15 +87,13 @@ export function AdminSettings() {
 
     const formatLabel = (str: string) => {
         if (!str) return '';
-        if (str.toLowerCase() === 'rmt') return 'RMT';
-        if (str.toLowerCase() === 'tcm') return 'TCM';
         if (str.toLowerCase() === 'it') return 'IT';
+        if (str.toLowerCase() === 'hr') return 'HR';
+
         return str.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
     };
 
-    const handleToggle = async (dept: string, field: 'can_view' | 'phone_number' | 'bio', currentValue: boolean) => {
-        setError(null);
-        setSuccessMessage(null);
+    const handleToggle = async (dept: string, field: 'can_view' | 'work_phone' | 'bio', currentValue: boolean) => {
         try {
             const existingRule = permissions.find(p => p.viewer_role === selectedRole && p.target_department === dept);
 
@@ -134,16 +127,15 @@ export function AdminSettings() {
             }
 
             await fetchPermissions();
-            setSuccessMessage(`Updated matrix successfully.`);
-            setTimeout(() => setSuccessMessage(null), 3000);
+            toast.success('Updated matrix successfully.');
         } catch (err: any) {
             console.error("Detailed catch error:", err);
-            setError(`Failed to update visibility matrix: ${err.message || 'Unknown error'}`);
+            toast.error(`Failed to update visibility matrix: ${err.message || 'Unknown error'}`);
         }
     };
 
     if (isLoading) return <LoadingSpinner />;
-    if (isDirector === false) return <Navigate to="/dashboard" replace />;
+    if (isExecutive === false) return <Navigate to="/dashboard" replace />;
 
     const currentRolePermissions = permissions.filter(p => p.viewer_role === selectedRole);
 
@@ -155,17 +147,6 @@ export function AdminSettings() {
             <p style={{ color: 'var(--text-muted)', marginBottom: '2rem', fontSize: '1.05rem' }}>
                 Manage role-based access control and system configurations.
             </p>
-
-            {error && (
-                <div style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                    {error}
-                </div>
-            )}
-            {successMessage && (
-                <div style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #86efac', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.95rem' }}>
-                    {successMessage}
-                </div>
-            )}
 
             <div className="glass-panel" style={{ padding: '2rem', borderRadius: '16px' }}>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: '600', color: 'var(--text-main)', marginBottom: '1.5rem' }}>Visibility Matrix</h2>
@@ -192,7 +173,7 @@ export function AdminSettings() {
                             <tr style={{ borderBottom: '2px solid var(--surface-border)', textAlign: 'left' }}>
                                 <th style={{ padding: '1rem', color: 'var(--text-main)', fontWeight: '600' }}>Target Department</th>
                                 <th style={{ padding: '1rem', color: 'var(--text-main)', fontWeight: '600' }}>Can See Department?</th>
-                                <th style={{ padding: '1rem', color: 'var(--text-main)', fontWeight: '600' }}>Can See Phone Number?</th>
+                                <th style={{ padding: '1rem', color: 'var(--text-main)', fontWeight: '600' }}>Can See Work Phone?</th>
                                 <th style={{ padding: '1rem', color: 'var(--text-main)', fontWeight: '600' }}>Can See Bio?</th>
                             </tr>
                         </thead>
@@ -217,9 +198,9 @@ export function AdminSettings() {
                                         <td style={{ padding: '1rem' }}>
                                             <input
                                                 type="checkbox"
-                                                checked={permRule?.visible_fields?.includes('phone_number') || false}
+                                                checked={permRule?.visible_fields?.includes('work_phone') || false}
                                                 disabled={!isVisible}
-                                                onChange={() => handleToggle(dept, 'phone_number', permRule?.visible_fields?.includes('phone_number') || false)}
+                                                onChange={() => handleToggle(dept, 'work_phone', permRule?.visible_fields?.includes('work_phone') || false)}
                                                 style={{ width: '18px', height: '18px', cursor: isVisible ? 'pointer' : 'not-allowed', opacity: isVisible ? 1 : 0.5 }}
                                             />
                                         </td>

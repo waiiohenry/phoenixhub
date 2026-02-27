@@ -7,6 +7,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Directory } from './pages/Directory';
 import { AdminSettings } from './pages/AdminSettings';
 import { Navbar } from './components/Navbar';
+import { Toaster } from 'react-hot-toast';
 
 // Protected layout includes the Navbar and wraps around protected routes
 function ProtectedLayout({ session }: { session: Session | null }) {
@@ -68,6 +69,30 @@ function App() {
 
   return (
     <Router>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#fff',
+            color: '#363636',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            borderRadius: '8px',
+            padding: '16px',
+            maxWidth: '500px',
+          },
+          success: {
+            style: {
+              borderLeft: '4px solid #22c55e',
+            },
+          },
+          error: {
+            style: {
+              borderLeft: '4px solid #ef4444',
+            },
+          },
+        }}
+      />
       <Routes>
         <Route
           path="/"

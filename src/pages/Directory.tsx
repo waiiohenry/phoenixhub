@@ -1,16 +1,36 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { formatPhoneNumber } from '../utils/formatters';
+import toast from 'react-hot-toast';
 
 interface StaffProfile {
     id: string;
-    first_name: string;
-    last_name: string;
     role: string;
     department: string;
     clinic_locations: string[];
-    phone_number: string;
+    work_phone: string;
     bio: string;
+    job_title?: string;
+    employee_id?: string;
+    preferred_name?: string;
+    legal_first_name?: string;
+    legal_last_name?: string;
+    display_name?: string;
+    practitioner_license_number?: string;
+    highest_education?: string;
+    profile_photo_url?: string;
+    employment_status?: string;
+    employment_type?: string;
+    fluent_languages?: string[];
+}
+
+export interface HRRecord {
+    id: string;
+    sin: string;
+    date_of_birth: string;
+    emergency_contact_name: string;
+    emergency_contact_phone: string;
+    end_date?: string;
 }
 
 interface RolePermission {
@@ -22,24 +42,19 @@ interface RolePermission {
 }
 
 const ROLES = [
-    'acupuncturist',
-    'admin',
-    'chiropractor',
-    'clinic_manager',
-    'director',
-    'kinesiologist',
-    'naturopath',
-    'office_manager',
-    'physiotherapist',
-    'front_desk',
-    'rmt',
-    'tcm'
+    'system_admin',
+    'executive',
+    'management',
+    'hr_management',
+    'administrative_support',
+    'clinical_provider'
 ];
 
 const DEPARTMENTS = [
     'clinical',
     'executive',
     'finance',
+    'hr',
     'it',
     'marketing'
 ];
@@ -51,20 +66,25 @@ export function Directory() {
     const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
 
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
 
     // Edit State
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
     const [editRole, setEditRole] = useState<string>('');
     const [editDept, setEditDept] = useState<string>('');
+    const [editJobTitle, setEditJobTitle] = useState<string>('');
     const [editLocations, setEditLocations] = useState<string[]>([]);
+    const [editLicense, setEditLicense] = useState<string>('');
     const [isSaving, setIsSaving] = useState(false);
-    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+    // HR File State
+    const [viewingHrId, setViewingHrId] = useState<string | null>(null);
+    const [hrRecord, setHrRecord] = useState<HRRecord | null>(null);
+    const [isHrLoading, setIsHrLoading] = useState(false);
+    const [hrError, setHrError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchDirectoryAndAuth = async () => {
             setIsLoading(true);
-            setError(null);
 
             try {
                 // 1. Get current user's profile info
@@ -97,7 +117,7 @@ export function Directory() {
                 }
 
                 // 3. Fetch all staff (filtering location client-side)
-                const { data: allStaff, error: staffError } = await supabase.from('staff_profiles').select('*').order('role');
+                const { data: allStaff, error: staffError } = await supabase.from('staff_profiles').select('*, role, department, clinic_locations, work_phone, bio, job_title, profile_photo_url').order('legal_last_name');
 
                 if (staffError) throw staffError;
 
@@ -106,7 +126,7 @@ export function Directory() {
                 }
             } catch (err: any) {
                 console.error(err);
-                setError('Failed to load directory. Please try again later.');
+                toast.error('Failed to load directory. Please try again later.');
             } finally {
                 setIsLoading(false);
             }
@@ -153,7 +173,7 @@ export function Directory() {
                 const visibleFields = rule.visible_fields || [];
                 return {
                     ...person,
-                    phone_number: visibleFields.includes('phone_number') ? person.phone_number : '',
+                    work_phone: visibleFields.includes('work_phone') ? person.work_phone : '',
                     bio: visibleFields.includes('bio') ? person.bio : ''
                 };
             }
@@ -165,9 +185,39 @@ export function Directory() {
         setEditingUserId(person.id);
         setEditRole(person.role || '');
         setEditDept(person.department || '');
+        setEditJobTitle(person.job_title || '');
         setEditLocations(person.clinic_locations || []);
-        setSuccessMessage(null);
-        setError(null);
+        setEditLicense(person.practitioner_license_number || '');
+        // Assuming we add editJobTitle later, adding basic job title support
+    };
+
+    const handleViewHrFile = async (personId: string) => {
+        setViewingHrId(personId);
+        setIsHrLoading(true);
+        setHrError(null);
+        setHrRecord(null);
+
+        try {
+            const { data, error } = await supabase
+                .from('hr_records')
+                .select('*')
+                .eq('id', personId)
+                .single();
+
+            if (error) throw error;
+            if (data) setHrRecord(data as HRRecord);
+        } catch (err) {
+            console.error(err);
+            setHrError('Access denied or HR record not found.');
+        } finally {
+            setIsHrLoading(false);
+        }
+    };
+
+    const closeHrModal = () => {
+        setViewingHrId(null);
+        setHrRecord(null);
+        setHrError(null);
     };
 
     const handleCancelEdit = () => {
@@ -176,8 +226,6 @@ export function Directory() {
 
     const handleSaveRole = async (targetUserId: string) => {
         setIsSaving(true);
-        setError(null);
-        setSuccessMessage(null);
 
         try {
             const { error: updateError } = await supabase
@@ -185,7 +233,9 @@ export function Directory() {
                 .update({
                     role: editRole,
                     department: editDept,
-                    clinic_locations: editLocations
+                    job_title: editJobTitle,
+                    clinic_locations: editLocations,
+                    practitioner_license_number: editLicense
                 })
                 .eq('id', targetUserId);
 
@@ -194,16 +244,15 @@ export function Directory() {
             // Update local state
             setStaff(prevStaff => prevStaff.map(person =>
                 person.id === targetUserId
-                    ? { ...person, role: editRole, department: editDept, clinic_locations: editLocations }
+                    ? { ...person, role: editRole, department: editDept, job_title: editJobTitle, clinic_locations: editLocations, practitioner_license_number: editLicense }
                     : person
             ));
 
-            setSuccessMessage('Staff profile updated successfully!');
-            setTimeout(() => setSuccessMessage(null), 3000);
+            toast.success('Staff profile updated successfully!');
             setEditingUserId(null);
         } catch (err: any) {
             console.error(err);
-            setError('Failed to update staff profile.');
+            toast.error('Failed to update staff profile.');
         } finally {
             setIsSaving(false);
         }
@@ -252,7 +301,8 @@ export function Directory() {
         return a.localeCompare(b);
     });
 
-    const isDirector = currentUserRole === 'director';
+    const isExecutive = currentUserRole === 'executive';
+    const isHrOrExec = currentUserRole === 'executive' || currentUserRole === 'hr_management';
 
     return (
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
@@ -268,34 +318,6 @@ export function Directory() {
             <p style={{ color: 'var(--text-muted)', marginBottom: '2rem', fontSize: '1.05rem' }}>
                 Connect with our team of professionals.
             </p>
-
-            {successMessage && (
-                <div style={{
-                    backgroundColor: '#dcfce7',
-                    color: '#166534',
-                    border: '1px solid #86efac',
-                    padding: '1rem',
-                    borderRadius: '8px',
-                    marginBottom: '1.5rem',
-                    fontSize: '0.95rem',
-                    textAlign: 'center'
-                }}>
-                    {successMessage}
-                </div>
-            )}
-
-            {error && (
-                <div style={{
-                    backgroundColor: 'var(--error-bg)',
-                    color: 'var(--error-text)',
-                    border: '1px solid var(--error-border)',
-                    padding: '1rem',
-                    borderRadius: '8px',
-                    marginBottom: '1.5rem',
-                }}>
-                    {error}
-                </div>
-            )}
 
             {visibleStaff.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
@@ -328,7 +350,7 @@ export function Directory() {
                                             transition: 'transform 0.2s ease',
                                             position: 'relative',
                                         }}>
-                                            {isDirector && !isEditing && (
+                                            {isExecutive && !isEditing && (
                                                 <button
                                                     onClick={() => handleEditClick(person)}
                                                     style={{
@@ -358,174 +380,262 @@ export function Directory() {
                                                 </button>
                                             )}
 
-                                            <div style={{ marginBottom: '1rem', paddingRight: isDirector ? '4rem' : '0' }}>
-                                                <h3 style={{
-                                                    fontSize: '1.25rem',
-                                                    fontWeight: '600',
-                                                    color: 'var(--text-main)',
-                                                    marginBottom: '0.25rem'
-                                                }}>
-                                                    {person.first_name} {person.last_name}
-                                                </h3>
+                                            <div style={{ marginBottom: '1rem', paddingRight: isExecutive ? '4rem' : '0', display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
 
-                                                {!isEditing ? (
-                                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                                                        <span style={{
-                                                            display: 'inline-block',
-                                                            backgroundColor: '#f1f5f9',
-                                                            color: '#475569',
-                                                            padding: '0.25rem 0.6rem',
-                                                            borderRadius: '9999px',
-                                                            fontSize: '0.75rem',
-                                                            fontWeight: '600',
-                                                            textTransform: 'uppercase',
-                                                            letterSpacing: '0.05em'
-                                                        }}>
-                                                            {person.role ? formatRole(person.role) : 'Staff'}
-                                                        </span>
-                                                        {person.clinic_locations && person.clinic_locations.map(loc => (
-                                                            <span key={loc} style={{
+                                                {/* Avatar Render */}
+                                                <div style={{
+                                                    flexShrink: 0,
+                                                    width: '48px',
+                                                    height: '48px',
+                                                    borderRadius: '50%',
+                                                    backgroundColor: 'var(--primary-100)',
+                                                    color: 'var(--primary-700)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: '1.25rem',
+                                                    fontWeight: 'bold',
+                                                    overflow: 'hidden',
+                                                    border: '2px solid white',
+                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                                                }}>
+                                                    {person.profile_photo_url ? (
+                                                        <img src={person.profile_photo_url} alt={person.display_name || person.preferred_name || person.legal_first_name || 'Staff'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    ) : (
+                                                        (person.preferred_name?.charAt(0) || person.legal_first_name?.charAt(0) || '?').toUpperCase()
+                                                    )}
+                                                </div>
+
+                                                <div style={{ flex: 1 }}>
+                                                    <h3 style={{
+                                                        fontSize: '1.25rem',
+                                                        fontWeight: '600',
+                                                        color: 'var(--text-main)',
+                                                        marginBottom: '0.25rem'
+                                                    }}>
+                                                        {person.display_name || `${person.preferred_name || person.legal_first_name || ''} ${person.legal_last_name || ''}`.trim() || 'Unknown Staff'}
+                                                    </h3>
+
+                                                    {!isEditing ? (
+                                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                                                            <span style={{
                                                                 display: 'inline-block',
-                                                                backgroundColor: '#f3f4f6',
-                                                                color: '#374151',
+                                                                backgroundColor: '#f1f5f9',
+                                                                color: '#475569',
                                                                 padding: '0.25rem 0.6rem',
                                                                 borderRadius: '9999px',
                                                                 fontSize: '0.75rem',
                                                                 fontWeight: '600',
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '0.05em'
                                                             }}>
-                                                                {loc}
+                                                                {person.job_title || 'Staff'}
                                                             </span>
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-                                                        <div>
-                                                            <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600, display: 'block' }}>Role</label>
-                                                            <select
-                                                                className="input-field"
-                                                                value={editRole}
-                                                                onChange={(e) => setEditRole(e.target.value)}
-                                                                style={{ padding: '0.5rem', fontSize: '0.875rem' }}
-                                                            >
-                                                                <option value="">Select Role</option>
-                                                                {ROLES.map(r => (
-                                                                    <option key={r} value={r}>{formatRole(r)}</option>
-                                                                ))}
-                                                            </select>
+                                                            {person.clinic_locations && person.clinic_locations.map(loc => (
+                                                                <span key={loc} style={{
+                                                                    display: 'inline-block',
+                                                                    backgroundColor: '#f3f4f6',
+                                                                    color: '#374151',
+                                                                    padding: '0.25rem 0.6rem',
+                                                                    borderRadius: '9999px',
+                                                                    fontSize: '0.75rem',
+                                                                    fontWeight: '600',
+                                                                }}>
+                                                                    {loc}
+                                                                </span>
+                                                            ))}
                                                         </div>
-                                                        <div>
-                                                            <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600, display: 'block' }}>Department</label>
-                                                            <select
-                                                                className="input-field"
-                                                                value={editDept}
-                                                                onChange={(e) => setEditDept(e.target.value)}
-                                                                style={{ padding: '0.5rem', fontSize: '0.875rem' }}
-                                                            >
-                                                                <option value="">Select Department</option>
-                                                                {DEPARTMENTS.map(d => (
-                                                                    <option key={d} value={d}>{formatDepartment(d)}</option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>Locations</label>
-                                                            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                                                                {['Headquarter', 'Burnaby', 'Richmond'].map(loc => (
-                                                                    <label key={loc} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem', color: 'var(--text-main)', cursor: 'pointer' }}>
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={editLocations.includes(loc)}
-                                                                            onChange={(e) => {
-                                                                                if (e.target.checked) {
-                                                                                    setEditLocations([...editLocations, loc]);
-                                                                                } else {
-                                                                                    setEditLocations(editLocations.filter(l => l !== loc));
-                                                                                }
-                                                                            }}
-                                                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                                                                        />
-                                                                        {loc}
-                                                                    </label>
-                                                                ))}
+                                                    ) : (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
+                                                            <div>
+                                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600, display: 'block' }}>Display Job Title</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={editJobTitle}
+                                                                    onChange={(e) => setEditJobTitle(e.target.value)}
+                                                                    className="input-field"
+                                                                    placeholder="e.g. Senior Acupuncturist"
+                                                                    style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+                                                                />
                                                             </div>
-                                                        </div>
-                                                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                                                            <button
-                                                                onClick={() => handleSaveRole(person.id)}
-                                                                disabled={isSaving}
-                                                                style={{
-                                                                    flex: 1,
-                                                                    backgroundColor: 'var(--primary-600)',
-                                                                    color: 'white',
-                                                                    border: 'none',
-                                                                    padding: '0.5rem',
-                                                                    borderRadius: '6px',
-                                                                    fontSize: '0.875rem',
-                                                                    fontWeight: 600,
-                                                                    cursor: isSaving ? 'not-allowed' : 'pointer',
-                                                                    opacity: isSaving ? 0.7 : 1
-                                                                }}
-                                                            >
-                                                                {isSaving ? 'Saving...' : 'Save'}
-                                                            </button>
-                                                            <button
-                                                                onClick={handleCancelEdit}
-                                                                disabled={isSaving}
-                                                                style={{
-                                                                    flex: 1,
-                                                                    backgroundColor: '#f1f5f9',
-                                                                    color: '#475569',
-                                                                    border: 'none',
-                                                                    padding: '0.5rem',
-                                                                    borderRadius: '6px',
-                                                                    fontSize: '0.875rem',
-                                                                    fontWeight: 600,
-                                                                    cursor: isSaving ? 'not-allowed' : 'pointer',
-                                                                }}
-                                                            >
-                                                                Cancel
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {!isEditing && (person.phone_number || person.bio) && (
-                                                <div style={{
-                                                    marginTop: 'auto',
-                                                    paddingTop: '1rem',
-                                                    borderTop: '1px solid var(--surface-border)'
-                                                }}>
-                                                    {person.phone_number && (
-                                                        <div style={{ marginBottom: person.bio ? '0.75rem' : '0' }}>
-                                                            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.1rem', fontWeight: 600 }}>Phone Number</div>
-                                                            <div style={{
-                                                                color: 'var(--text-main)',
-                                                                fontSize: '0.9rem',
-                                                                fontWeight: 500,
-                                                                fontStyle: 'normal'
-                                                            }}>
-                                                                <a href={`tel:${person.phone_number}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-                                                                    {formatPhoneNumber(person.phone_number)}
-                                                                </a>
+                                                            <div>
+                                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600, display: 'block' }}>Practitioner License Number</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={editLicense}
+                                                                    onChange={(e) => setEditLicense(e.target.value)}
+                                                                    className="input-field"
+                                                                    placeholder="e.g. CTCMA12345"
+                                                                    style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+                                                                />
                                                             </div>
-                                                        </div>
-                                                    )}
-                                                    {person.bio && (
-                                                        <div>
-                                                            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.1rem', fontWeight: 600 }}>Bio</div>
-                                                            <div style={{
-                                                                color: 'var(--text-main)',
-                                                                fontSize: '0.9rem',
-                                                                lineHeight: 1.5,
-                                                                fontStyle: 'normal'
-                                                            }}>
-                                                                {person.bio}
+                                                            <div>
+                                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600, display: 'block' }}>System Access Role</label>
+                                                                <select
+                                                                    className="input-field"
+                                                                    value={editRole}
+                                                                    onChange={(e) => setEditRole(e.target.value)}
+                                                                    style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+                                                                >
+                                                                    <option value="">Select Role</option>
+                                                                    {ROLES.map(r => (
+                                                                        <option key={r} value={r}>{formatRole(r)}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600, display: 'block' }}>Department</label>
+                                                                <select
+                                                                    className="input-field"
+                                                                    value={editDept}
+                                                                    onChange={(e) => setEditDept(e.target.value)}
+                                                                    style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+                                                                >
+                                                                    <option value="">Select Department</option>
+                                                                    {DEPARTMENTS.map(d => (
+                                                                        <option key={d} value={d}>{formatDepartment(d)}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>Locations</label>
+                                                                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                                                                    {['Headquarter', 'Burnaby', 'Richmond'].map(loc => (
+                                                                        <label key={loc} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem', color: 'var(--text-main)', cursor: 'pointer' }}>
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={editLocations.includes(loc)}
+                                                                                onChange={(e) => {
+                                                                                    if (e.target.checked) {
+                                                                                        setEditLocations([...editLocations, loc]);
+                                                                                    } else {
+                                                                                        setEditLocations(editLocations.filter(l => l !== loc));
+                                                                                    }
+                                                                                }}
+                                                                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                                                            />
+                                                                            {loc}
+                                                                        </label>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                                                <button
+                                                                    onClick={() => handleSaveRole(person.id)}
+                                                                    disabled={isSaving}
+                                                                    style={{
+                                                                        flex: 1,
+                                                                        backgroundColor: 'var(--primary-600)',
+                                                                        color: 'white',
+                                                                        border: 'none',
+                                                                        padding: '0.5rem',
+                                                                        borderRadius: '6px',
+                                                                        fontSize: '0.875rem',
+                                                                        fontWeight: 600,
+                                                                        cursor: isSaving ? 'not-allowed' : 'pointer',
+                                                                        opacity: isSaving ? 0.7 : 1
+                                                                    }}
+                                                                >
+                                                                    {isSaving ? 'Saving...' : 'Save'}
+                                                                </button>
+                                                                <button
+                                                                    onClick={handleCancelEdit}
+                                                                    disabled={isSaving}
+                                                                    style={{
+                                                                        flex: 1,
+                                                                        backgroundColor: '#f1f5f9',
+                                                                        color: '#475569',
+                                                                        border: 'none',
+                                                                        padding: '0.5rem',
+                                                                        borderRadius: '6px',
+                                                                        fontSize: '0.875rem',
+                                                                        fontWeight: 600,
+                                                                        cursor: isSaving ? 'not-allowed' : 'pointer',
+                                                                    }}
+                                                                >
+                                                                    Cancel
+                                                                </button>
                                                             </div>
                                                         </div>
                                                     )}
                                                 </div>
-                                            )}
+
+                                                {!isEditing && (person.work_phone || person.bio || person.practitioner_license_number) && (
+                                                    <div style={{
+                                                        marginTop: 'auto',
+                                                        paddingTop: '1rem',
+                                                        borderTop: '1px solid var(--surface-border)'
+                                                    }}>
+                                                        {person.practitioner_license_number && (
+                                                            <div style={{ marginBottom: (person.work_phone || person.bio || isHrOrExec) ? '0.75rem' : '0' }}>
+                                                                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.1rem', fontWeight: 600 }}>License Number</div>
+                                                                <div style={{
+                                                                    color: 'var(--text-main)',
+                                                                    fontSize: '0.9rem',
+                                                                    fontWeight: 500,
+                                                                    fontStyle: 'normal'
+                                                                }}>
+                                                                    {person.practitioner_license_number}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {person.work_phone && (
+                                                            <div style={{ marginBottom: person.bio || isHrOrExec ? '0.75rem' : '0' }}>
+                                                                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.1rem', fontWeight: 600 }}>Work Phone</div>
+                                                                <div style={{
+                                                                    color: 'var(--text-main)',
+                                                                    fontSize: '0.9rem',
+                                                                    fontWeight: 500,
+                                                                    fontStyle: 'normal'
+                                                                }}>
+                                                                    <a href={`tel:${person.work_phone}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                                                                        {formatPhoneNumber(person.work_phone)}
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {person.bio && (
+                                                            <div style={{ marginBottom: isHrOrExec ? '0.75rem' : '0' }}>
+                                                                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.1rem', fontWeight: 600 }}>Bio</div>
+                                                                <div style={{
+                                                                    color: 'var(--text-main)',
+                                                                    fontSize: '0.9rem',
+                                                                    lineHeight: 1.5,
+                                                                    fontStyle: 'normal'
+                                                                }}>
+                                                                    {person.bio}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {isHrOrExec && !isEditing && (
+                                                            <div style={{ marginTop: '0.5rem' }}>
+                                                                <button
+                                                                    onClick={() => handleViewHrFile(person.id)}
+                                                                    style={{
+                                                                        backgroundColor: '#fce7f3',
+                                                                        color: '#be185d',
+                                                                        border: '1px solid #fbcfe8',
+                                                                        padding: '0.35rem 0.75rem',
+                                                                        borderRadius: '6px',
+                                                                        fontSize: '0.75rem',
+                                                                        fontWeight: 600,
+                                                                        cursor: 'pointer',
+                                                                        transition: 'all 0.2s ease',
+                                                                        width: '100%',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        gap: '0.35rem'
+                                                                    }}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                                                                    View HR File
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     );
                                 })}
@@ -546,6 +656,171 @@ export function Directory() {
                     </div>
                 )
             )}
+
+            {/* HR File Modal */}
+            {viewingHrId && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+                    backdropFilter: 'blur(4px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 50,
+                    animation: 'fade-in 0.2s ease-out'
+                }} onClick={closeHrModal}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        borderRadius: '16px',
+                        width: '100%',
+                        maxWidth: '500px',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                        overflow: 'hidden',
+                        animation: 'slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+                    }} onClick={(e) => e.stopPropagation()}>
+
+                        <div style={{
+                            padding: '1.5rem',
+                            borderBottom: '1px solid var(--surface-border)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            backgroundColor: '#fdf2f8'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{
+                                    backgroundColor: '#fbcfe8',
+                                    padding: '0.5rem',
+                                    borderRadius: '8px',
+                                    color: '#be185d'
+                                }}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#831843', margin: 0 }}>HR Confidential File</h2>
+                                    <p style={{ fontSize: '0.85rem', color: '#be185d', margin: 0, opacity: 0.8 }}>Strictly Internal Access</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={closeHrModal}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: '#9ca3af',
+                                    cursor: 'pointer',
+                                    padding: '0.5rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '50%',
+                                    transition: 'background-color 0.2s ease'
+                                }}
+                                onMouseOver={(e) => {
+                                    e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.05)';
+                                    e.currentTarget.style.color = '#4b5563';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.currentTarget.style.backgroundColor = 'transparent';
+                                    e.currentTarget.style.color = '#9ca3af';
+                                }}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '2rem' }}>
+                            {isHrLoading ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '2rem' }}>
+                                    <svg style={{ animation: 'logo-spin 1s linear infinite', color: '#be185d' }} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
+                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Securely fetching records...</p>
+                                </div>
+                            ) : hrError ? (
+                                <div style={{
+                                    backgroundColor: '#fef2f2',
+                                    color: '#ef4444',
+                                    padding: '1rem',
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    gap: '0.75rem',
+                                    alignItems: 'center'
+                                }}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                    <span>{hrError}</span>
+                                </div>
+                            ) : hrRecord ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600 }}>Date of Birth</div>
+                                            <div style={{ color: 'var(--text-main)', fontWeight: 500 }}>
+                                                {hrRecord.date_of_birth ? new Date(hrRecord.date_of_birth).toLocaleDateString() : 'N/A'}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600 }}>Social Insurance Number</div>
+                                            <div style={{ color: 'var(--text-main)', fontWeight: 500, fontFamily: 'monospace', letterSpacing: '0.05em' }}>
+                                                {hrRecord.sin || 'N/A'}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style={{
+                                        borderTop: '1px solid var(--surface-border)',
+                                        paddingTop: '1.25rem'
+                                    }}>
+                                        <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '1rem' }}>Emergency Contact</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600 }}>Contact Name</div>
+                                                <div style={{ color: 'var(--text-main)', fontWeight: 500 }}>
+                                                    {hrRecord.emergency_contact_name || 'N/A'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600 }}>Phone Number</div>
+                                                <div style={{ color: 'var(--text-main)', fontWeight: 500 }}>
+                                                    {hrRecord.emergency_contact_phone ? formatPhoneNumber(hrRecord.emergency_contact_phone) : 'N/A'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ marginTop: '0.5rem' }}>
+                                        <button
+                                            onClick={closeHrModal}
+                                            style={{
+                                                width: '100%',
+                                                padding: '0.75rem',
+                                                backgroundColor: '#f1f5f9',
+                                                color: '#475569',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                                transition: 'background-color 0.2s ease'
+                                            }}
+                                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#e2e8f0'}
+                                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                                        >
+                                            Done
+                                        </button>
+                                    </div>
+
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
+
+// Add these to global CSS or index.css for modal animations if not already present
+// @keyframes slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+// @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }

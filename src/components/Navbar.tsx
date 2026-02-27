@@ -4,10 +4,10 @@ import { supabase } from '../lib/supabase';
 
 export function Navbar() {
     const location = useLocation();
-    const [isDirector, setIsDirector] = useState(false);
+    const [isExecutive, setIsExecutive] = useState(false);
 
     useEffect(() => {
-        const checkDirectorStatus = async () => {
+        const checkExecutiveStatus = async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
                 const { data: profile } = await supabase
@@ -16,12 +16,12 @@ export function Navbar() {
                     .eq('id', user.id)
                     .single();
 
-                if (profile?.role === 'director') {
-                    setIsDirector(true);
+                if (profile?.role === 'executive') {
+                    setIsExecutive(true);
                 }
             }
         };
-        checkDirectorStatus();
+        checkExecutiveStatus();
     }, []);
 
     const isProfileActive = location.pathname === '/' || location.pathname === '/dashboard';
@@ -72,7 +72,7 @@ export function Navbar() {
                 >
                     Directory
                 </Link>
-                {isDirector && (
+                {isExecutive && (
                     <Link
                         to="/admin"
                         style={{
