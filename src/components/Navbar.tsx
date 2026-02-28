@@ -16,7 +16,7 @@ export function Navbar() {
                     .eq('id', user.id)
                     .single();
 
-                if (profile?.role === 'executive') {
+                if (profile?.role?.includes('executive')) {
                     setIsExecutive(true);
                 }
             }

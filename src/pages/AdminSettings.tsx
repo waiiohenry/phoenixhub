@@ -54,7 +54,7 @@ export function AdminSettings() {
                     .eq('id', user.id)
                     .single();
 
-                if (profile?.role !== 'executive') {
+                if (!profile?.role?.includes('executive')) {
                     setIsExecutive(false);
                     return;
                 }

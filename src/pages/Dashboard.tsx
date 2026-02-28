@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 
 interface StaffProfile {
     id: string;
-    role: string;
+    role: string[];
     department: string;
     clinic_locations: string[];
     work_phone: string;
@@ -15,8 +15,10 @@ interface StaffProfile {
     employee_id?: string;
     preferred_name?: string;
     legal_first_name?: string;
+    legal_middle_name?: string;
     legal_last_name?: string;
     display_name?: string;
+    work_email?: string;
     practitioner_license_number?: string;
     highest_education?: string;
     profile_photo_url?: string;
@@ -43,8 +45,13 @@ export function Dashboard({ user }: { user: User | null }) {
     const [isSaving, setIsSaving] = useState(false);
     const [formData, setFormData] = useState({
         work_phone: '',
+        work_email: '',
         bio: '',
         preferred_name: '',
+        legal_first_name: '',
+        legal_middle_name: '',
+        legal_last_name: '',
+        display_name: '',
         fluent_languages: [] as string[]
     });
 
@@ -70,10 +77,11 @@ export function Dashboard({ user }: { user: User | null }) {
                 .single();
 
             if (fetchError) {
+                console.error("Dashboard profile fetch error:", fetchError);
                 if (fetchError.code === 'PGRST116') {
                     toast.error('Profile not found. Please contact the clinic administrator.');
                 } else {
-                    toast.error('An error occurred while fetching your profile.');
+                    toast.error(`Error: ${fetchError.message || 'An error occurred while fetching your profile.'}`);
                 }
             } else if (data) {
                 setProfileData({
@@ -112,17 +120,33 @@ export function Dashboard({ user }: { user: User | null }) {
         await supabase.auth.signOut();
     };
 
-    const formatRole = (role: string) => {
-        if (!role) return '';
-        if (role.toLowerCase() === 'front_desk') return 'Front Desk';
-        return role.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    const formatRole = (roles: string[]) => {
+        if (!roles || roles.length === 0) return '';
+        return roles.map(role => {
+            if (role === 'system_admin') return 'System Admin';
+            if (role === 'executive') return 'Executive';
+            if (role === 'management') return 'Management';
+            if (role === 'hr_management') return 'HR Management';
+            if (role === 'administrative_support') return 'Admin Support';
+            if (role === 'clinical_provider') return 'Clinical Provider';
+            if (role === 'hr') return 'HR';
+            return role.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+        }).join(', ');
     };
+
+    const userRole = profileData?.role || [];
+    const isHR = userRole.includes('hr') || userRole.includes('hr_management') || userRole.includes('executive');
 
     const handleEditClick = () => {
         setFormData({
             work_phone: profileData?.work_phone || '',
+            work_email: profileData?.work_email || '',
             bio: profileData?.bio || '',
             preferred_name: profileData?.preferred_name || '',
+            legal_first_name: profileData?.legal_first_name || '',
+            legal_middle_name: profileData?.legal_middle_name || '',
+            legal_last_name: profileData?.legal_last_name || '',
+            display_name: profileData?.display_name || '',
             fluent_languages: profileData?.fluent_languages || []
         });
         setIsEditing(true);
@@ -140,8 +164,13 @@ export function Dashboard({ user }: { user: User | null }) {
             .from('staff_profiles')
             .update({
                 work_phone: formData.work_phone,
+                work_email: formData.work_email,
                 bio: formData.bio,
                 preferred_name: formData.preferred_name,
+                legal_first_name: formData.legal_first_name,
+                legal_middle_name: formData.legal_middle_name,
+                legal_last_name: formData.legal_last_name,
+                display_name: formData.display_name,
                 fluent_languages: formData.fluent_languages
             })
             .eq('id', user.id);
@@ -154,8 +183,13 @@ export function Dashboard({ user }: { user: User | null }) {
             setProfileData(prev => prev ? {
                 ...prev,
                 work_phone: formData.work_phone,
+                work_email: formData.work_email,
                 bio: formData.bio,
                 preferred_name: formData.preferred_name,
+                legal_first_name: formData.legal_first_name,
+                legal_middle_name: formData.legal_middle_name,
+                legal_last_name: formData.legal_last_name,
+                display_name: formData.display_name,
                 fluent_languages: formData.fluent_languages
             } : null);
             setIsEditing(false);
@@ -199,9 +233,10 @@ export function Dashboard({ user }: { user: User | null }) {
         }}>
             <div className="glass-panel animate-fade-in" style={{
                 width: '100%',
-                maxWidth: '500px',
+                maxWidth: isEditing ? '800px' : '500px',
                 padding: '2.5rem',
                 borderRadius: '16px',
+                transition: 'max-width 0.3s ease',
             }}>
                 {profileData ? (
                     <div style={{ textAlign: 'center' }}>
@@ -317,6 +352,14 @@ export function Dashboard({ user }: { user: User | null }) {
                                                     {hrRecord.sin || 'N/A'}
                                                 </div>
                                             </div>
+                                            {hrRecord.end_date && (
+                                                <div style={{ gridColumn: '1 / -1' }}>
+                                                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#be185d', marginBottom: '0.25rem', fontWeight: 600 }}>Termination / End Date</div>
+                                                    <div style={{ color: '#ef4444', fontWeight: 600 }}>
+                                                        {new Date(hrRecord.end_date).toLocaleDateString()}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div style={{ borderTop: '1px solid #fce7f3', paddingTop: '1rem' }}>
@@ -341,59 +384,151 @@ export function Dashboard({ user }: { user: User | null }) {
                                     <div style={{ textAlign: 'center', color: '#be185d', padding: '1rem' }}>{hrError || 'HR Record not found.'}</div>
                                 )
                             ) : isEditing ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                    <div>
-                                        <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
-                                            Preferred Name
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.preferred_name}
-                                            onChange={(e) => setFormData({ ...formData, preferred_name: e.target.value })}
-                                            className="input-field"
-                                            placeholder="What should we call you?"
-                                        />
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                                    {/* Identity & Display Card */}
+                                    <div style={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)' }}>
+                                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>Identity & Display</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                    Legal First Name
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.legal_first_name}
+                                                    onChange={(e) => setFormData({ ...formData, legal_first_name: e.target.value })}
+                                                    className="input-field"
+                                                    placeholder="Given name"
+                                                    disabled={!isHR}
+                                                    style={{ opacity: isHR ? 1 : 0.6, cursor: isHR ? 'text' : 'not-allowed' }}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                    Legal Middle Name
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.legal_middle_name}
+                                                    onChange={(e) => setFormData({ ...formData, legal_middle_name: e.target.value })}
+                                                    className="input-field"
+                                                    placeholder="Middle name (optional)"
+                                                    disabled={!isHR}
+                                                    style={{ opacity: isHR ? 1 : 0.6, cursor: isHR ? 'text' : 'not-allowed' }}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                    Legal Last Name
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.legal_last_name}
+                                                    onChange={(e) => setFormData({ ...formData, legal_last_name: e.target.value })}
+                                                    className="input-field"
+                                                    placeholder="Family name"
+                                                    disabled={!isHR}
+                                                    style={{ opacity: isHR ? 1 : 0.6, cursor: isHR ? 'text' : 'not-allowed' }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                    Preferred Name
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.preferred_name}
+                                                    onChange={(e) => setFormData({ ...formData, preferred_name: e.target.value })}
+                                                    className="input-field"
+                                                    placeholder="What should we call you?"
+                                                />
+                                            </div>
+                                            {isHR && (
+                                                <div>
+                                                    <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                        Display Name
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={formData.display_name}
+                                                        onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                                                        className="input-field"
+                                                        placeholder="Full display name (e.g. Dr. Jane Doe)"
+                                                    />
+                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>This is the name displayed to patients and staff.</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
-                                            Work Phone
-                                        </label>
-                                        <input
-                                            type="tel"
-                                            value={formData.work_phone}
-                                            onChange={(e) => setFormData({ ...formData, work_phone: e.target.value })}
-                                            className="input-field"
-                                            placeholder="Enter phone number"
-                                        />
+
+                                    {/* Contact Information Card */}
+                                    <div style={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)' }}>
+                                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>Contact Information</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                    Work Email
+                                                </label>
+                                                <input
+                                                    type="email"
+                                                    value={formData.work_email}
+                                                    onChange={(e) => setFormData({ ...formData, work_email: e.target.value })}
+                                                    className="input-field"
+                                                    placeholder="Email address"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                    Work Phone
+                                                </label>
+                                                <input
+                                                    type="tel"
+                                                    value={formData.work_phone}
+                                                    onChange={(e) => setFormData({ ...formData, work_phone: e.target.value })}
+                                                    className="input-field"
+                                                    placeholder="Enter phone number"
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
-                                            Fluent Languages
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.fluent_languages.join(', ')}
-                                            onChange={(e) => {
-                                                const array = e.target.value.split(',').map(s => s.trim()).filter(s => s.length > 0);
-                                                setFormData({ ...formData, fluent_languages: array });
-                                            }}
-                                            className="input-field"
-                                            placeholder="e.g. English, Mandarin, Cantonese"
-                                        />
-                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Separate with commas.</span>
-                                    </div>
-                                    <div>
-                                        <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
-                                            Bio
-                                        </label>
-                                        <textarea
-                                            value={formData.bio}
-                                            onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
-                                            className="input-field"
-                                            placeholder="Tell us about yourself..."
-                                            rows={4}
-                                            style={{ resize: 'vertical', fontFamily: 'inherit' }}
-                                        />
+
+                                    {/* Professional Details Card */}
+                                    <div style={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)' }}>
+                                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>Professional Details</h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                            <div style={{ width: '100%' }}>
+                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                    Fluent Languages
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.fluent_languages.join(', ')}
+                                                    onChange={(e) => {
+                                                        const array = e.target.value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                                                        setFormData({ ...formData, fluent_languages: array });
+                                                    }}
+                                                    className="input-field"
+                                                    placeholder="e.g. English, Mandarin, Cantonese"
+                                                    style={{ width: '100%' }}
+                                                />
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Separate with commas.</span>
+                                            </div>
+                                            <div style={{ width: '100%' }}>
+                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>
+                                                    Bio
+                                                </label>
+                                                <textarea
+                                                    value={formData.bio}
+                                                    onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                                                    className="input-field"
+                                                    placeholder="Tell us about yourself..."
+                                                    rows={4}
+                                                    style={{ resize: 'vertical', fontFamily: 'inherit', width: '100%' }}
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             ) : (
@@ -448,7 +583,19 @@ export function Dashboard({ user }: { user: User | null }) {
 
                         {activeTab === 'profile' && (
                             isEditing ? (
-                                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '1rem',
+                                    position: 'sticky',
+                                    bottom: '1rem',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                    backdropFilter: 'blur(8px)',
+                                    padding: '1rem',
+                                    borderRadius: '12px',
+                                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05), 0 0 0 1px var(--surface-border)',
+                                    zIndex: 20,
+                                    marginTop: '2rem'
+                                }}>
                                     <button
                                         onClick={handleCancelClick}
                                         disabled={isSaving}

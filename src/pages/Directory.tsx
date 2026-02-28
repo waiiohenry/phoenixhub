@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 
 interface StaffProfile {
     id: string;
-    role: string;
+    role: string[];
     department: string;
     clinic_locations: string[];
     work_phone: string;
@@ -14,8 +14,10 @@ interface StaffProfile {
     employee_id?: string;
     preferred_name?: string;
     legal_first_name?: string;
+    legal_middle_name?: string;
     legal_last_name?: string;
     display_name?: string;
+    work_email?: string;
     practitioner_license_number?: string;
     highest_education?: string;
     profile_photo_url?: string;
@@ -41,15 +43,6 @@ interface RolePermission {
     visible_fields: string[];
 }
 
-const ROLES = [
-    'system_admin',
-    'executive',
-    'management',
-    'hr_management',
-    'administrative_support',
-    'clinical_provider'
-];
-
 const DEPARTMENTS = [
     'clinical',
     'executive',
@@ -61,7 +54,7 @@ const DEPARTMENTS = [
 
 export function Directory() {
     const [staff, setStaff] = useState<StaffProfile[]>([]);
-    const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+    const [currentUserRole, setCurrentUserRole] = useState<string[] | null>(null);
     const [currentUserLocations, setCurrentUserLocations] = useState<string[]>([]);
     const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
 
@@ -69,7 +62,7 @@ export function Directory() {
 
     // Edit State
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
-    const [editRole, setEditRole] = useState<string>('');
+    const [editRole, setEditRole] = useState<string[]>([]);
     const [editDept, setEditDept] = useState<string>('');
     const [editJobTitle, setEditJobTitle] = useState<string>('');
     const [editLocations, setEditLocations] = useState<string[]>([]);
@@ -106,18 +99,18 @@ export function Directory() {
                 }
 
                 // 2. Fetch role permissions for this specific role
-                if (currentRole) {
+                if (currentRole && currentRole.length > 0) {
                     const { data: perms } = await supabase
                         .from('role_permissions')
                         .select('*')
-                        .eq('viewer_role', currentRole);
+                        .in('viewer_role', currentRole); // Use .in for arrays
                     if (perms) {
                         setRolePermissions(perms as RolePermission[]);
                     }
                 }
 
                 // 3. Fetch all staff (filtering location client-side)
-                const { data: allStaff, error: staffError } = await supabase.from('staff_profiles').select('*, role, department, clinic_locations, work_phone, bio, job_title, profile_photo_url').order('legal_last_name');
+                const { data: allStaff, error: staffError } = await supabase.from('staff_profiles').select('*').order('legal_last_name');
 
                 if (staffError) throw staffError;
 
@@ -135,15 +128,6 @@ export function Directory() {
         fetchDirectoryAndAuth();
     }, []);
 
-    const formatRole = (role: string) => {
-        if (!role) return '';
-        if (role.toLowerCase() === 'rmt') return 'RMT';
-        if (role.toLowerCase() === 'tcm') return 'TCM';
-        if (role.toLowerCase() === 'it') return 'IT';
-        if (role.toLowerCase() === 'front_desk') return 'Front Desk';
-        return role.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-    };
-
     const formatDepartment = (dept: string) => {
         if (!dept) return '';
         if (dept.toLowerCase() === 'it') return 'IT';
@@ -152,10 +136,12 @@ export function Directory() {
 
     // RBAC Logic directly via RolePermissions table matrix
     const getVisibleStaffAndMasking = () => {
-        if (!currentUserRole) return [];
+        if (!currentUserRole || currentUserRole.length === 0) return [];
+
+        const isClinicManager = currentUserRole.includes('management');
 
         return staff.filter(person => {
-            if (currentUserRole === 'clinic_manager') {
+            if (isClinicManager) {
                 if (!currentUserLocations.includes('Headquarter')) {
                     const targetLocations = person.clinic_locations || [];
                     const hasIntersection = targetLocations.some(loc => currentUserLocations.includes(loc));
@@ -183,7 +169,7 @@ export function Directory() {
 
     const handleEditClick = (person: StaffProfile) => {
         setEditingUserId(person.id);
-        setEditRole(person.role || '');
+        setEditRole(person.role || []);
         setEditDept(person.department || '');
         setEditJobTitle(person.job_title || '');
         setEditLocations(person.clinic_locations || []);
@@ -301,8 +287,8 @@ export function Directory() {
         return a.localeCompare(b);
     });
 
-    const isExecutive = currentUserRole === 'executive';
-    const isHrOrExec = currentUserRole === 'executive' || currentUserRole === 'hr_management';
+    const isExecutive = currentUserRole?.includes('executive') || false;
+    const isHrOrExec = currentUserRole?.includes('executive') || currentUserRole?.includes('hr') || currentUserRole?.includes('hr_management');
 
     return (
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
@@ -470,18 +456,32 @@ export function Directory() {
                                                                 />
                                                             </div>
                                                             <div>
-                                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600, display: 'block' }}>System Access Role</label>
-                                                                <select
-                                                                    className="input-field"
-                                                                    value={editRole}
-                                                                    onChange={(e) => setEditRole(e.target.value)}
-                                                                    style={{ padding: '0.5rem', fontSize: '0.875rem' }}
-                                                                >
-                                                                    <option value="">Select Role</option>
-                                                                    {ROLES.map(r => (
-                                                                        <option key={r} value={r}>{formatRole(r)}</option>
+                                                                <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.5rem', fontWeight: 600, display: 'block' }}>System Access Roles</label>
+                                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                                                                    {[
+                                                                        { value: 'executive', label: 'Executive' },
+                                                                        { value: 'management', label: 'Management' },
+                                                                        { value: 'administrative_support', label: 'Admin Support' },
+                                                                        { value: 'clinical_provider', label: 'Clinical Provider' },
+                                                                        { value: 'hr', label: 'HR' }
+                                                                    ].map(role => (
+                                                                        <label key={role.value} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem', color: 'var(--text-main)', cursor: 'pointer' }}>
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={editRole.includes(role.value)}
+                                                                                onChange={(e) => {
+                                                                                    if (e.target.checked) {
+                                                                                        setEditRole([...editRole, role.value]);
+                                                                                    } else {
+                                                                                        setEditRole(editRole.filter(r => r !== role.value));
+                                                                                    }
+                                                                                }}
+                                                                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                                                            />
+                                                                            {role.label}
+                                                                        </label>
                                                                     ))}
-                                                                </select>
+                                                                </div>
                                                             </div>
                                                             <div>
                                                                 <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-light)', marginBottom: '0.25rem', fontWeight: 600, display: 'block' }}>Department</label>
@@ -789,6 +789,22 @@ export function Directory() {
                                             </div>
                                         </div>
                                     </div>
+
+                                    {hrRecord.end_date && (
+                                        <div style={{
+                                            borderTop: '1px solid var(--surface-border)',
+                                            paddingTop: '1.25rem'
+                                        }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#be185d', marginBottom: '0.25rem', fontWeight: 600 }}>Termination / End Date</div>
+                                                    <div style={{ color: '#ef4444', fontWeight: 600 }}>
+                                                        {new Date(hrRecord.end_date).toLocaleDateString()}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div style={{ marginTop: '0.5rem' }}>
                                         <button
